@@ -21,7 +21,6 @@ import logging
 import numpy as np
 
 from nomad.units import ureg
-
 from nomad.datamodel import EntryArchive
 from nomad.parsing.file_parser import TextParser, Quantity, DataTextParser
 from simulationworkflowschema import SinglePoint
@@ -37,7 +36,6 @@ from runschema.calculation import (
 )
 from runschema.method import Method, AtomParameters, KMesh, Wannier, TB
 from runschema.system import System, Atoms, AtomsGroup
-from ..utils import get_files
 
 # New schema
 from nomad_simulations import Simulation, Program as BaseProgram
@@ -61,6 +59,8 @@ from nomad_simulations.properties import (
     ElectronicDensityOfStates,
     FermiLevel,
 )
+
+from .utils import get_files
 
 
 re_n = r'[\n\r]'
