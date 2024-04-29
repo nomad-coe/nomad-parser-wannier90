@@ -70,9 +70,16 @@ To deploy the plugin in your local NOMAD installation, follow the next steps:
     plugins:
       include:
         - 'parsers/wannier90'
+        - 'runschema'
+        - 'simulationworkflowschema'
+        - 'nomad_simulations'
       options:
         parsers/wannier90:
           python_package: nomad_parser_wannier90
+        runschema:
+          python_package: runschema
+        nomad_simulations:
+          python_package: nomad_simulations
     ```
 3. Add to your local NOMAD installation the same lines of your plugin ```nomad.yaml``` file.
 4. Add to your local NOMAD installation environment the `PYTHONPATH` to your plugin. This can be done either by running the following command every time you start a new terminal for running the appworker, or by adding it to your virtual environment in the `<path-to-local-nomad-installation>/.pyenv/bin/activate` file:
