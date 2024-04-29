@@ -6,7 +6,15 @@ plugins:
   # We only include our schema here. Without the explicit include, all plugins will be
   # loaded. Many build in plugins require more dependencies. Install nomad-lab[parsing]
   # to make all default plugins work.
-  include: 'parsers/example'
+  include:
+    - 'parsers/wannier90'
+    - 'runschema'
+    - 'simulationworkflowschema'
+    - 'nomad_simulations'
   options:
-    parsers/example:
-      python_package: nomadparserexample
+    parsers/wannier90:
+      python_package: nomad_parser_wannier90
+    runschema:
+      python_package: runschema
+    nomad_simulations:
+      python_package: nomad_simulations
