@@ -45,9 +45,7 @@ from nomad_simulations import Simulation, Program as BaseProgram
 from nomad_simulations.model_system import ModelSystem, AtomicCell
 from nomad_simulations.atoms_state import (
     AtomsState,
-    HubbardInteractions,
     CoreHole,
-    OrbitalsState,
 )
 from nomad_simulations.model_method import (
     ModelMethod,

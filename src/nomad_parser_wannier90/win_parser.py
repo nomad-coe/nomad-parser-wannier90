@@ -21,7 +21,6 @@ import numpy as np
 from typing import List, Optional, Tuple
 from structlog.stdlib import BoundLogger
 
-from nomad.units import ureg
 from nomad.parsing.file_parser import TextParser, Quantity
 
 from nomad_simulations.model_system import ModelSystem, AtomicCell
