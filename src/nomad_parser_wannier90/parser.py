@@ -371,22 +371,6 @@ class Wannier90ParserData:
 
         return model_wannier
 
-    def parse_fermi_level(self, outputs: Outputs) -> FermiLevel:
-        fermi_level = FermiLevel(variables=[])
-        fermi_level.value = 0.5 * ureg.eV
-        # try:
-        # Setting Fermi level to the first orbital onsite energy
-        # n_wigner_seitz_points_half = int(
-        #     0.5 * sec_hopping_matrix.n_wigner_seitz_points
-        # )
-        # energy_fermi = (
-        #     sec_hopping_matrix.value[n_wigner_seitz_points_half][0][5] * ureg.eV
-        # )
-        #     fermi_level.value = energy_fermi
-        #     output.fermi_level.append(fermi_level)
-        # except Exception:
-        #     return
-
     def parse_dos(self, output):
         dos_files = get_files('*dos.dat', self.filepath, self.mainfile)
         if not dos_files:
@@ -430,14 +414,13 @@ class Wannier90ParserData:
         for hr_file in hr_files:
             # contains information about `n_orbitals`
             wannier_method = simulation.model_method[-1]
-            hopping_matrix = Wannier90HrParser().parse_hoppings(
-                hr_file, wannier_method, logger
+            hopping_matrix, crystal_field_splitting = (
+                Wannier90HrParser().parse_hoppings(hr_file, wannier_method, logger)
             )
-            outputs.hopping_matrix.append(hopping_matrix)
-
-        # Parse Fermi level
-        fermi_level = self.parse_fermi_level(outputs)
-        outputs.fermi_level.append(fermi_level)
+            if hopping_matrix is not None:
+                outputs.hopping_matrix.append(hopping_matrix)
+            if crystal_field_splitting is not None:
+                outputs.crystal_field_splitting.append(hopping_matrix)
 
         # Parse DOS
         self.parse_dos(outputs)

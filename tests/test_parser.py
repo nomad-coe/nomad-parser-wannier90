@@ -23,6 +23,8 @@ import os
 from nomad.datamodel import EntryArchive
 from nomad_parser_wannier90.parser import Wannier90Parser
 
+from . import logger
+
 
 def approx(value, abs=0, rel=1e-6):
     return pytest.approx(value, abs=abs, rel=rel)
@@ -36,9 +38,10 @@ def parser():
 def test_single_point_La2CuO4(parser):
     archive = EntryArchive()
     parser.parse(
-        os.path.join(os.path.dirname(__file__), 'data/lco_mlwf/lco.wout'),
+        # os.path.join(os.path.dirname(__file__), 'data/lco_mlwf/lco.wout'),
+        os.path.join(os.path.dirname(__file__), 'data/lk99_liangsi_1/k000.wout'),
         archive,
-        None,
+        logger,
     )
     sec_run = archive.run[-1]
     sec_program = sec_run.program

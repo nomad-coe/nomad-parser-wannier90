@@ -21,8 +21,10 @@ import numpy as np
 from typing import List, Optional, Tuple
 from structlog.stdlib import BoundLogger
 
+from nomad.units import ureg
 from nomad.parsing.file_parser import TextParser, Quantity
 
+from nomad_simulations.model_method import Wannier
 from nomad_simulations.properties import HoppingMatrix, CrystalFieldSplitting
 from nomad_simulations.variables import WignerSeitz
 
@@ -42,46 +44,60 @@ class Wannier90HrParser:
     def __init__(self):
         self.hr_parser = HrParser()
 
-    def parse_hoppings(self, hr_file: Optional[str], logger: BoundLogger):
+    def parse_hoppings(
+        self, hr_file: Optional[str], wannier_method: Wannier, logger: BoundLogger
+    ) -> Tuple[Optional[HoppingMatrix], Optional[CrystalFieldSplitting]]:
         if not hr_file:
             logger.warning('Hopping `*hr.data` file not found.')
-            return None
+            return None, None
         self.hr_parser.mainfile = hr_file
 
-        # Parsing the degeneracy factors and values of the `HoppingMatrix`
-        hopping_matrix = HoppingMatrix()
-        sec_hopping_matrix.n_orbitals = (
-            self.archive.run[-1].method[-1].tb.wannier.n_projected_orbitals
+        # Parsing the `HoppingMatrix` and `CrystalFieldSplitting` sections
+        n_orbitals = wannier_method.n_orbitals
+        crystal_field_splitting = CrystalFieldSplitting(
+            n_orbitals=n_orbitals, variables=[]
         )
+        hopping_matrix = HoppingMatrix(n_orbitals=n_orbitals)
+
+        # Parse the `degeneracy_factors` and `value` of the `HoppingMatrix`
         deg_factors = self.hr_parser.get('degeneracy_factors', [])
-        if deg_factors is not None:
-            sec_hopping_matrix.n_wigner_seitz_points = deg_factors[1]
-            sec_hopping_matrix.degeneracy_factors = deg_factors[2:]
-            full_hoppings = self.hr_parser.get('hoppings', [])
-            try:
-                sec_hopping_matrix.value = np.reshape(
-                    full_hoppings,
-                    (
-                        sec_hopping_matrix.n_wigner_seitz_points,
-                        sec_hopping_matrix.n_orbitals * sec_hopping_matrix.n_orbitals,
-                        7,
-                    ),
-                )
-            except Exception:
-                self.logger.warning(
-                    'Could not parse the hopping matrix values. Please, revise your output files.'
-                )
+        if deg_factors is None or len(deg_factors) == 0:
+            logger.warning('Could not parse the degeneracy factors.')
+            return None, None
+
+        # Define the variables `WignerSeitz`
+        n_wigner_seitz_points = deg_factors[1]
+        wigner_seitz = WignerSeitz(
+            n_grid_points=n_wigner_seitz_points - 1
+        )  # delete crystal field Wigner-Seitz point from `HoppingMatrix` variable
+        hopping_matrix.variables.append(wigner_seitz)
+
+        # deg_factors and full_hoppings contain both the `CrystalFieldSplitting` and `HoppingMatrix` values
+        degeneracy_factors = deg_factors[2:]
+        full_hoppings = self.hr_parser.get('hoppings', [])
         try:
-            sec_scc_energy = Energy()
-            sec_scc.energy = sec_scc_energy
-            # Setting Fermi level to the first orbital onsite energy
-            n_wigner_seitz_points_half = int(
-                0.5 * sec_hopping_matrix.n_wigner_seitz_points
+            hops = np.reshape(
+                full_hoppings,
+                (n_wigner_seitz_points, n_orbitals, n_orbitals, 7),
             )
-            energy_fermi = (
-                sec_hopping_matrix.value[n_wigner_seitz_points_half][0][5] * ureg.eV
-            )
-            sec_scc_energy.fermi = energy_fermi
-            sec_scc_energy.highest_occupied = energy_fermi
+
+            # storing the crystal field splitting values
+            ws0 = int((n_wigner_seitz_points - 1) / 2)
+            crystal_fields = [
+                hops[ws0, i, i, 5] for i in range(n_orbitals)
+            ]  # only real elements
+            crystal_field_splitting.value = crystal_fields * ureg('eV')
+
+            # delete repeated points for different orbitals
+            ws_points = hops[:, :, :, :3]
+            ws_points = np.unique(ws_points.reshape(-1, 3), axis=0)
+            wigner_seitz.grid_points = ws_points
+
+            # passing hoppings
+            hoppings = hops[:, :, :, -2] + 1j * hops[:, :, :, -1]
+            hopping_matrix.value = hoppings * ureg('eV')
+            hopping_matrix.degeneracy_factors = degeneracy_factors
         except Exception:
-            return
+            logger.warning('Could not parse the hopping matrix values.')
+            return None, None
+        return hopping_matrix, crystal_field_splitting
