@@ -18,7 +18,7 @@
 #
 
 import numpy as np
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 from structlog.stdlib import BoundLogger
 
 from nomad.units import ureg
@@ -68,7 +68,7 @@ class Wannier90HrParser:
         # Define the variables `WignerSeitz`
         n_wigner_seitz_points = deg_factors[1]
         wigner_seitz = WignerSeitz(
-            n_grid_points=n_wigner_seitz_points - 1
+            n_grid_points=n_wigner_seitz_points
         )  # delete crystal field Wigner-Seitz point from `HoppingMatrix` variable
         hopping_matrix.variables.append(wigner_seitz)
 

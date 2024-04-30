@@ -58,7 +58,6 @@ from nomad_simulations.variables import Temperature, Energy2
 from nomad_simulations.properties import (
     ElectronicBandGap,
     ElectronicDensityOfStates,
-    FermiLevel,
 )
 
 from .utils import get_files
@@ -244,8 +243,6 @@ class Wannier90ParserData:
             # "conv_tol": "convergence_tolerance_max_localization",
         }
 
-        # TODO move to normalization or utils in nomad?
-
     def parse_atoms_state(self, labels: List[str]) -> List[AtomsState]:
         """
         Parse the `AtomsState` from the labels by storing them as the `chemical_symbols`.
@@ -424,6 +421,8 @@ class Wannier90ParserData:
 
         # Parse DOS
         self.parse_dos(outputs)
+
+        # TODO Parse BandStructure
         return outputs
 
     def init_parser(self, logger: BoundLogger):
