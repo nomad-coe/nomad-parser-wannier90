@@ -63,7 +63,7 @@ from nomad_simulations.properties import (
 
 from .utils import get_files
 from .win_parser import WInParser, Wannier90WInParser
-
+from .hr_parser import HrParser, Wannier90HrParser
 
 re_n = r'[\n\r]'
 
@@ -230,17 +230,6 @@ class WOutParser(TextParser):
         ]
 
 
-class HrParser(TextParser):
-    def __init__(self):
-        super().__init__(None)
-
-    def init_quantities(self):
-        self._quantities = [
-            Quantity('degeneracy_factors', r'\s*written on[\s\w]*:\d*:\d*\s*([\d\s]+)'),
-            Quantity('hoppings', rf'\s*([-\d\s.]+)', repeats=False),
-        ]
-
-
 class Wannier90ParserData:
     level = 1
 
@@ -248,7 +237,6 @@ class Wannier90ParserData:
         self.wout_parser = WOutParser()
         self.band_dat_parser = DataTextParser()
         self.dos_dat_parser = DataTextParser()
-        self.hr_parser = HrParser()
 
         self._input_projection_mapping = {
             'Nwannier': 'n_orbitals',
@@ -382,10 +370,9 @@ class Wannier90ParserData:
 
         return model_wannier
 
-    def parse_fermi_level(self, output):
+    def parse_fermi_level(self, outputs: Outputs) -> FermiLevel:
         fermi_level = FermiLevel(variables=[])
         fermi_level.value = 0.5 * ureg.eV
-        output.fermi_level.append(fermi_level)
         # try:
         # Setting Fermi level to the first orbital onsite energy
         # n_wigner_seitz_points_half = int(
@@ -416,31 +403,44 @@ class Wannier90ParserData:
         sec_dos.value = data[1] / ureg.eV
         output.electronic_dos.append(sec_dos)
 
-    def parse_output(self, simulation):
-        output = Outputs(model_system_ref=simulation.model_system[-1])
-        simulation.outputs.append(output)
+    def parse_outputs(self, simulation: Simulation, logger: BoundLogger) -> Outputs:
+        outputs = Outputs()
+        if simulation.model_system is not None:
+            outputs.model_system_ref = simulation.model_system[-1]
 
+        # TESTING ##############################################
         # Scalar band gap
         bg = ElectronicBandGap(type='direct')
         bg.variables = []
         bg.value = 1.0 * ureg.eV
-        output.electronic_band_gap.append(bg)
-
+        outputs.electronic_band_gap.append(bg)
         # T-dependent band gap
         bg = ElectronicBandGap(type='direct')
         bg.variables = [Temperature(grid_points=[1, 2, 3] * ureg.kelvin)]
         value = [1.0, 1.1, 1.2] * ureg.eV
         bg.value = value
-        output.electronic_band_gap.append(bg)
+        outputs.electronic_band_gap.append(bg)
+        # TESTING ##############################################
 
-        # Fermi level and DOS
-        self.parse_fermi_level(output)
-        self.parse_dos(output)
+        # Parse hoppings
+        hr_files = get_files('*hr.dat', self.filepath, '*.wout')
+        if len(hr_files) > 1:
+            logger.info('Multiple `*hr.dat` files found.')
+        for hr_file in hr_files:
+            hopping_matrix = Wannier90HrParser().parse_hoppings(hr_file, logger)
+            outputs.hopping_matrix.append(hopping_matrix)
 
-    def init_parser(self):
+        # Parse Fermi level
+        fermi_level = self.parse_fermi_level(outputs)
+        outputs.fermi_level.append(fermi_level)
+
+        # Parse DOS
+        self.parse_dos(outputs)
+        return outputs
+
+    def init_parser(self, logger: BoundLogger):
         self.wout_parser.mainfile = self.filepath
-        self.wout_parser.logger = self.logger
-        self.hr_parser.logger = self.logger
+        self.wout_parser.logger = logger
 
     def parse(self, filepath: str, archive: EntryArchive, logger: BoundLogger):
         self.filepath = filepath
@@ -448,7 +448,7 @@ class Wannier90ParserData:
         self.maindir = os.path.dirname(self.filepath)
         self.mainfile = os.path.basename(self.filepath)
 
-        self.init_parser()
+        self.init_parser(logger)
 
         # Adding Simulation to data
         simulation = Simulation()
@@ -466,18 +466,23 @@ class Wannier90ParserData:
 
             # Child `ModelSystem` and `OrbitalsState` parsing
             win_files = get_files('*.win', self.filepath, '*.wout')
-            win_parser = Wannier90WInParser()
-            child_model_systems = win_parser.parse_child_model_systems(
-                win_files, model_system, logger
-            )
-            model_system.model_system = child_model_systems
+            if len(win_files) > 1:
+                logger.warning(
+                    'Multiple `*.win` files found. We will parse the first one.'
+                )
+            if win_files is not None:
+                child_model_systems = Wannier90WInParser().parse_child_model_systems(
+                    win_files[0], model_system, logger
+                )
+                model_system.model_system = child_model_systems
 
         # `ModelWannier(ModelMethod)` parsing
         model_method = self.parse_model_method()
         simulation.model_method.append(model_method)
 
         # `Outputs` parsing
-        self.parse_output(simulation)
+        outputs = self.parse_outputs(simulation, logger)
+        simulation.outputs.append(outputs)
 
 
 class Wannier90Parser:
