@@ -54,15 +54,14 @@ from nomad_simulations.model_method import (
 )
 
 from nomad_simulations.outputs import Outputs
-from nomad_simulations.variables import Temperature, Energy2
-from nomad_simulations.properties import (
-    ElectronicBandGap,
-    ElectronicDensityOfStates,
-)
+from nomad_simulations.variables import Temperature
+from nomad_simulations.properties import ElectronicBandGap
 
 from .utils import get_files
 from .win_parser import WInParser, Wannier90WInParser
 from .hr_parser import HrParser, Wannier90HrParser
+from .dos_parser import Wannier90DosParser
+from .band_parser import Wannier90BandParser
 
 re_n = r'[\n\r]'
 
@@ -234,8 +233,17 @@ class Wannier90ParserData:
 
     def __init__(self):
         self.wout_parser = WOutParser()
-        self.band_dat_parser = DataTextParser()
-        self.dos_dat_parser = DataTextParser()
+
+        self._dft_codes = [
+            'quantumespresso',
+            'abinit',
+            'vasp',
+            'siesta',
+            'wien2k',
+            'fleur',
+            'openmx',
+            'gpaw',
+        ]
 
         self._input_projection_mapping = {
             'Nwannier': 'n_orbitals',
@@ -368,23 +376,6 @@ class Wannier90ParserData:
 
         return model_wannier
 
-    def parse_dos(self, output):
-        dos_files = get_files('*dos.dat', self.filepath, self.mainfile)
-        if not dos_files:
-            return
-        if len(dos_files) > 1:
-            self.logger.warning('Multiple dos data files found.')
-        # Parsing only first *dos.dat file
-        self.dos_dat_parser.mainfile = dos_files[0]
-
-        # TODO add spin polarized case
-        data = np.transpose(self.dos_dat_parser.data)
-        sec_dos = ElectronicDensityOfStates()
-        energies = Energy2(grid_points=data[0] * ureg.eV)
-        sec_dos.variables = [energies]
-        sec_dos.value = data[1] / ureg.eV
-        output.electronic_dos.append(sec_dos)
-
     def parse_outputs(self, simulation: Simulation, logger: BoundLogger) -> Outputs:
         outputs = Outputs()
         if simulation.model_system is not None:
@@ -405,7 +396,7 @@ class Wannier90ParserData:
         # TESTING ##############################################
 
         # Parse hoppings
-        hr_files = get_files('*hr.dat', self.filepath, '*.wout')
+        hr_files = get_files('*hr.dat', self.filepath, self.mainfile)
         if len(hr_files) > 1:
             logger.info('Multiple `*hr.dat` files found.')
         for hr_file in hr_files:
@@ -420,9 +411,25 @@ class Wannier90ParserData:
                 outputs.crystal_field_splitting.append(hopping_matrix)
 
         # Parse DOS
-        self.parse_dos(outputs)
+        dos_files = get_files('*dos.dat', self.filepath, self.mainfile)
+        if len(dos_files) > 1:
+            logger.info('Multiple `*dos.dat` files found.')
+        for dos_file in dos_files:
+            electronic_dos = Wannier90DosParser().parse_dos(dos_file, logger)
+            if electronic_dos is not None:
+                outputs.electronic_dos.append(electronic_dos)
 
-        # TODO Parse BandStructure
+        # Parse BandStructure
+        band_files = get_files('*band.dat', self.filepath, self.mainfile)
+        if len(band_files) > 1:
+            logger.info('Multiple `*band.dat` files found.')
+        for band_file in band_files:
+            band_structure = Wannier90BandParser().parse_band_structure(
+                band_file, logger
+            )
+            if band_structure is not None:
+                outputs.electronic_band_structure.append(band_structure)
+
         return outputs
 
     def init_parser(self, logger: BoundLogger):
@@ -452,7 +459,7 @@ class Wannier90ParserData:
             simulation.model_system.append(model_system)
 
             # Child `ModelSystem` and `OrbitalsState` parsing
-            win_files = get_files('*.win', self.filepath, '*.wout')
+            win_files = get_files('*.win', self.filepath, self.mainfile)
             if len(win_files) > 1:
                 logger.warning(
                     'Multiple `*.win` files found. We will parse the first one.'

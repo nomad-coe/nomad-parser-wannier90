@@ -48,7 +48,7 @@ class Wannier90HrParser:
         self, hr_file: Optional[str], wannier_method: Wannier, logger: BoundLogger
     ) -> Tuple[Optional[HoppingMatrix], Optional[CrystalFieldSplitting]]:
         if not hr_file:
-            logger.warning('Hopping `*hr.data` file not found.')
+            logger.warning('Hopping `*hr.dat` file not found.')
             return None, None
         self.hr_parser.mainfile = hr_file
 
