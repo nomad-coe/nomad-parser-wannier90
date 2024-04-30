@@ -284,8 +284,9 @@ class Wannier90ParserData:
 
         # Parsing `atoms_state` from `structure`
         labels = self.wout_parser.get('structure', {}).get('labels')
-        atoms_state = self.parse_atoms_state(labels)
-        atomic_cell.atoms_state = atoms_state
+        if labels is not None:
+            atoms_state = self.parse_atoms_state(labels)
+            atomic_cell.atoms_state = atoms_state
         # and parsing `positions`
         if self.wout_parser.get('structure', {}).get('positions') is not None:
             atomic_cell.positions = (
@@ -427,7 +428,11 @@ class Wannier90ParserData:
         if len(hr_files) > 1:
             logger.info('Multiple `*hr.dat` files found.')
         for hr_file in hr_files:
-            hopping_matrix = Wannier90HrParser().parse_hoppings(hr_file, logger)
+            # contains information about `n_orbitals`
+            wannier_method = simulation.model_method[-1]
+            hopping_matrix = Wannier90HrParser().parse_hoppings(
+                hr_file, wannier_method, logger
+            )
             outputs.hopping_matrix.append(hopping_matrix)
 
         # Parse Fermi level

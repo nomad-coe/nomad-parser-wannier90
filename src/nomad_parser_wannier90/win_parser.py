@@ -18,7 +18,7 @@
 #
 
 import numpy as np
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 from structlog.stdlib import BoundLogger
 
 from nomad.parsing.file_parser import TextParser, Quantity
@@ -118,21 +118,24 @@ class Wannier90WInParser:
 
     def parse_child_atom_indices(
         self,
-        atom: str,
+        atom: Union[str, int],
         atomic_cell: AtomicCell,
         units: str,
-    ) -> Tuple[str, List[int]]:
+    ) -> Tuple[Optional[str], List[int]]:
         """
         Parse the atom indices for the child model system.
 
         Args:
-            atom (str): The atom string containing the positions information.
+            atom (Union[str, int]): The atom string containing the positions information. In some older version,
+            this can be an integer index pointing to the atom.
             atomic_cell (AtomicCell): The `AtomicCell` section where `positions` are stored
             units (str): The units in which the positions are defined.
 
         Returns:
             (Tuple[str, List[int]]): The `branch_label` and `atom_indices` for the child model system.
         """
+        if isinstance(atom, int):
+            return '', [atom]
         if atom.startswith('f='):  # fractional coordinates
             positions = [float(x) for x in atom.replace('f=', '').split(',')]
             positions = np.dot(positions, atomic_cell.lattice_vectors.magnitude)
@@ -161,16 +164,25 @@ class Wannier90WInParser:
         Populate the `OrbitalsState` sections for the AtomsState relevant for the Wannier projection.
 
         Args:
-            projection (List[str]): The projection information for the atom.
+            projection (List[Union[int, str]]): The projection information for the atom.
             model_system_child (ModelSystem): The child model system to get the `atom_indices`.
             atomic_cell (AtomicCell): The `AtomicCell` section where `positions` are stored.
             logger (BoundLogger): The logger to log messages.
         """
         atom = projection[0]
         for atom_index in model_system_child.atom_indices:
-            atom_state = atomic_cell.atoms_state[atom_index]
-            if atom != atom_state.chemical_symbol:
+            if atomic_cell.atoms_state is None or len(atomic_cell.atoms_state) == 0:
+                logger.warning(
+                    'Could not extract the `AtomicCell.atoms_state` sections.'
+                )
                 continue
+            atom_state = atomic_cell.atoms_state[atom_index]
+
+            # To avoid issues when `atom` is an integer
+            if isinstance(atom, str) and atom != atom_state.chemical_symbol:
+                continue
+
+            # Try to get the orbitals information
             try:
                 orbitals = projection[1].split(';')
                 angular_momentum = None
@@ -192,6 +204,7 @@ class Wannier90WInParser:
             except Exception:
                 logger.warning('Projected orbital labels not found from win.')
                 return None
+        return None
 
     def parse_child_model_systems(
         self,
