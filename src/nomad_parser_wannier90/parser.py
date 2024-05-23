@@ -50,8 +50,8 @@ from nomad_simulations.atoms_state import (
 from nomad_simulations.model_method import (
     ModelMethod,
     Wannier as ModelWannier,
-    KMesh as ModelKMesh,
 )
+from nomad_simulations.numerical_settings import KMesh as ModelKMesh
 
 from nomad_simulations.outputs import Outputs
 from nomad_simulations.variables import Temperature
@@ -389,7 +389,7 @@ class Wannier90ParserData:
         outputs.electronic_band_gap.append(bg)
         # T-dependent band gap
         bg = ElectronicBandGap(type='direct')
-        bg.variables = [Temperature(grid_points=[1, 2, 3] * ureg.kelvin)]
+        bg.variables = [Temperature(points=[1, 2, 3] * ureg.kelvin)]
         value = [1.0, 1.1, 1.2] * ureg.eV
         bg.value = value
         outputs.electronic_band_gap.append(bg)
