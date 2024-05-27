@@ -28,9 +28,6 @@ from nomad_simulations.atoms_state import OrbitalsState
 
 
 class WInParser(TextParser):
-    def __init__(self):
-        super().__init__()
-
     def init_quantities(self):
         def str_proj_to_list(val_in):
             # To avoid inconsistent regex that can contain or not spaces

@@ -30,9 +30,6 @@ from nomad_simulations.variables import WignerSeitz
 
 
 class HrParser(TextParser):
-    def __init__(self):
-        super().__init__(None)
-
     def init_quantities(self):
         self._quantities = [
             Quantity('degeneracy_factors', r'\s*written on[\s\w]*:\d*:\d*\s*([\d\s]+)'),
