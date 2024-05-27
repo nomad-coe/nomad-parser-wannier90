@@ -44,7 +44,7 @@ class Wannier90DosParser:
         # TODO add spin polarized case
         data = np.transpose(self.dos_parser.data)
         sec_dos = ElectronicDensityOfStates()
-        energies = Energy2(grid_points=data[0] * ureg.eV)
+        energies = Energy2(points=data[0] * ureg.eV)
         sec_dos.variables.append(energies)
         sec_dos.value = data[1] / ureg.eV
         return sec_dos

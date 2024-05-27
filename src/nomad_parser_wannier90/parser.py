@@ -51,7 +51,7 @@ from nomad_simulations.model_method import (
     ModelMethod,
     Wannier as ModelWannier,
 )
-from nomad_simulations.numerical_settings import KMesh as ModelKMesh, KSpace
+from nomad_simulations.numerical_settings import KMesh as ModelKMesh, KSpace, KLinePath
 
 from nomad_simulations.outputs import Outputs
 from nomad_simulations.variables import Temperature
@@ -137,6 +137,19 @@ class WOutParser(TextParser):
             Quantity('k_points', r'\|[\s\d]*(-*\d.[^\|]+)', repeats=True, dtype=float),
         ]
 
+        klinepath_quantities = [
+            Quantity(
+                'high_symm_name',
+                r'\| *From\: *([a-zA-Z]+) [\d\.\-\s]*To\: *([a-zA-Z]+)',
+                repeats=True,
+            ),
+            Quantity(
+                'high_symm_value',
+                r'\| *From\: *[a-zA-Z]* *([\d\.\-\s]+)To\: *[a-zA-Z]* *([\d\.\-\s]+)\|',
+                repeats=True,
+            ),
+        ]
+
         disentangle_quantities = [
             Quantity(
                 'outer',
@@ -184,6 +197,12 @@ class WOutParser(TextParser):
                 rf'\s*(K-POINT GRID[\s\S]+?)(?:-\s*MAIN)',
                 repeats=False,
                 sub_parser=TextParser(quantities=kmesh_quantities),
+            ),
+            Quantity(
+                'k_line_path',
+                rf'\s*(K-space path sections\:[\s\S]+?)(?:\*-------)',
+                repeats=False,
+                sub_parser=TextParser(quantities=klinepath_quantities),
             ),
             Quantity(
                 'Nwannier',
@@ -351,13 +370,44 @@ class Wannier90ParserData:
         """
         sec_k_mesh = None
         k_mesh = self.wout_parser.get('k_mesh')
-        if k_mesh:
-            sec_k_mesh = ModelKMesh()
-            sec_k_mesh.n_points = k_mesh.get('n_points')
-            sec_k_mesh.grid = k_mesh.get('grid', [])
-            if k_mesh.get('k_points') is not None:
-                sec_k_mesh.points = np.complex128(k_mesh.k_points[::2])
+        if k_mesh is None:
+            return sec_k_mesh
+        sec_k_mesh = ModelKMesh()
+        sec_k_mesh.n_points = k_mesh.get('n_points')
+        sec_k_mesh.grid = k_mesh.get('grid', [])
+        if k_mesh.get('k_points') is not None:
+            sec_k_mesh.points = np.complex128(k_mesh.k_points[::2])
         return sec_k_mesh
+
+    def parse_k_line_path(self) -> Optional[KLinePath]:
+        """
+        Parse the `KLinePath` section from the `WOutParser` quantities.
+
+        Returns:
+            (Optional[KLinePath]): The parsed `KLinePath` section.
+        """
+        sec_k_line_path = None
+        k_line_path = self.wout_parser.get('k_line_path')
+        if k_line_path is None:
+            return sec_k_line_path
+
+        # Store the list of high symmetry names and values for the section `KLinePath`
+        high_symm_names = k_line_path.get('high_symm_name')
+        high_symm_values = [
+            np.reshape(val, (2, 3)) for val in k_line_path.get('high_symm_value')
+        ]
+        # Start with the first element of the first pair
+        names = [high_symm_names[0][0]]
+        values = [high_symm_values[0][0]]
+        for i, pair in enumerate(high_symm_names):
+            # Add the second element if it's not the last one in the list
+            if pair[1] != names[-1]:
+                names.append(pair[1])
+                values.append(high_symm_values[i][1])
+        sec_k_line_path = KLinePath(
+            high_symmetry_path_names=names, high_symmetry_path_values=values
+        )  # `points` are extracted in the `Wannier90BandParser` using the `KLinePath.resolve_points` method
+        return sec_k_line_path
 
     def parse_model_method(self) -> ModelMethod:
         """
@@ -374,6 +424,13 @@ class Wannier90ParserData:
         if k_mesh is not None:
             k_space = KSpace(k_mesh=[k_mesh])
             model_wannier.numerical_settings.append(k_space)
+
+        k_line_path = self.parse_k_line_path()
+        if k_line_path is not None:
+            if k_space is None:
+                k_space = KSpace()
+                model_wannier.numerical_settings.append(k_space)
+            k_space.k_line_path = k_line_path
 
         return model_wannier
 
@@ -400,16 +457,16 @@ class Wannier90ParserData:
         hr_files = get_files('*hr.dat', self.filepath, self.mainfile)
         if len(hr_files) > 1:
             logger.info('Multiple `*hr.dat` files found.')
+        # contains information about `n_orbitals`
+        wannier_method = simulation.m_xpath('model_method[-1]', dict=False)
         for hr_file in hr_files:
-            # contains information about `n_orbitals`
-            wannier_method = simulation.model_method[-1]
             hopping_matrix, crystal_field_splitting = Wannier90HrParser(
                 hr_file
             ).parse_hoppings(wannier_method, logger)
             if hopping_matrix is not None:
                 outputs.hopping_matrix.append(hopping_matrix)
             if crystal_field_splitting is not None:
-                outputs.crystal_field_splitting.append(hopping_matrix)
+                outputs.crystal_field_splitting.append(crystal_field_splitting)
 
         # Parse DOS
         dos_files = get_files('*dos.dat', self.filepath, self.mainfile)
@@ -422,10 +479,16 @@ class Wannier90ParserData:
 
         # Parse BandStructure
         band_files = get_files('*band.dat', self.filepath, self.mainfile)
+        # contains information about `k_line_path`
+        k_line_path = simulation.m_xpath(
+            'model_method[-1].numerical_settings[-1].k_line_path', dict=False
+        )
         if len(band_files) > 1:
             logger.info('Multiple `*band.dat` files found.')
         for band_file in band_files:
-            band_structure = Wannier90BandParser(band_file).parse_band_structure(logger)
+            band_structure = Wannier90BandParser(band_file).parse_band_structure(
+                k_line_path, logger
+            )
             if band_structure is not None:
                 outputs.electronic_band_structure.append(band_structure)
 

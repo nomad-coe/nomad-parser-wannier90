@@ -39,6 +39,8 @@ class Wannier90BandParser:
         return None
 
     def parse_band_structure(
-        self, logger: BoundLogger
+        self, k_line_path: Optional[KLinePath], logger: BoundLogger
     ) -> Optional[ElectronicBandStructure]:
-        logger.info('hey')
+        if k_line_path is None:
+            logger.info('`KLinePath` settings not found.')
+            return None

@@ -44,7 +44,7 @@ class Wannier90HrParser:
         self.hr_parser = HrParser(mainfile=hr_file)
 
     def parse_hoppings(
-        self, wannier_method: Wannier, logger: BoundLogger
+        self, wannier_method: Optional[Wannier], logger: BoundLogger
     ) -> Tuple[Optional[HoppingMatrix], Optional[CrystalFieldSplitting]]:
         """
         Parse the `HoppingMatrix` and `CrystalFieldSplitting` sections from the `*hr.dat` file.
@@ -57,8 +57,12 @@ class Wannier90HrParser:
             (Tuple[Optional[HoppingMatrix], Optional[CrystalFieldSplitting]]): The parsed `HoppingMatrix` and
             `CrystalFieldSplitting` properties].
         """
-        # Parsing the `HoppingMatrix` and `CrystalFieldSplitting` sections
+        if wannier_method is None:
+            logger.warning('Could not parse the `Wannier` method.')
+            return None, None
         n_orbitals = wannier_method.n_orbitals
+
+        # Parsing the `HoppingMatrix` and `CrystalFieldSplitting` sections
         crystal_field_splitting = CrystalFieldSplitting(
             n_orbitals=n_orbitals, variables=[]
         )
@@ -73,7 +77,7 @@ class Wannier90HrParser:
         # Define the variables `WignerSeitz`
         n_wigner_seitz_points = deg_factors[1]
         wigner_seitz = WignerSeitz(
-            n_grid_points=n_wigner_seitz_points
+            n_points=n_wigner_seitz_points
         )  # delete crystal field Wigner-Seitz point from `HoppingMatrix` variable
         hopping_matrix.variables.append(wigner_seitz)
 
@@ -96,7 +100,7 @@ class Wannier90HrParser:
             # delete repeated points for different orbitals
             ws_points = hops[:, :, :, :3]
             ws_points = np.unique(ws_points.reshape(-1, 3), axis=0)
-            wigner_seitz.grid_points = ws_points
+            wigner_seitz.points = ws_points
 
             # passing hoppings
             hoppings = hops[:, :, :, -2] + 1j * hops[:, :, :, -1]
