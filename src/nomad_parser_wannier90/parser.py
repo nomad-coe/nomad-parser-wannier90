@@ -409,7 +409,7 @@ class Wannier90ParserData:
         )  # `points` are extracted in the `Wannier90BandParser` using the `KLinePath.resolve_points` method
         return sec_k_line_path
 
-    def parse_model_method(self) -> ModelMethod:
+    def parse_model_method(self, simulation: Simulation) -> ModelMethod:
         """
         Parse the `ModelWannier(ModelMethod)` section from the `WOutParser` quantities.
 
@@ -444,13 +444,13 @@ class Wannier90ParserData:
         bg = ElectronicBandGap(type='direct')
         bg.variables = []
         bg.value = 1.0 * ureg.eV
-        outputs.electronic_band_gap.append(bg)
+        outputs.electronic_band_gaps.append(bg)
         # T-dependent band gap
         bg = ElectronicBandGap(type='direct')
         bg.variables = [Temperature(points=[1, 2, 3] * ureg.kelvin)]
         value = [1.0, 1.1, 1.2] * ureg.eV
         bg.value = value
-        outputs.electronic_band_gap.append(bg)
+        outputs.electronic_band_gaps.append(bg)
         # TESTING ##############################################
 
         # Parse hoppings
@@ -462,11 +462,11 @@ class Wannier90ParserData:
         for hr_file in hr_files:
             hopping_matrix, crystal_field_splitting = Wannier90HrParser(
                 hr_file
-            ).parse_hoppings(wannier_method, logger)
+            ).parse_hoppings(wannier_method=wannier_method, logger=logger)
             if hopping_matrix is not None:
-                outputs.hopping_matrix.append(hopping_matrix)
+                outputs.hopping_matrices.append(hopping_matrix)
             if crystal_field_splitting is not None:
-                outputs.crystal_field_splitting.append(crystal_field_splitting)
+                outputs.crystal_field_splittings.append(crystal_field_splitting)
 
         # Parse DOS
         dos_files = get_files('*dos.dat', self.filepath, self.mainfile)
@@ -480,17 +480,22 @@ class Wannier90ParserData:
         # Parse BandStructure
         band_files = get_files('*band.dat', self.filepath, self.mainfile)
         # contains information about `k_line_path`
-        k_line_path = simulation.m_xpath(
-            'model_method[-1].numerical_settings[-1].k_line_path', dict=False
+        k_space = simulation.m_xpath(
+            'model_method[-1].numerical_settings[-1]', dict=False
         )
+        # getting the list of `ModelSystem` to extract the reciprocal_lattice_vectors
+        model_systems = simulation.m_xpath('model_system', dict=False)
         if len(band_files) > 1:
             logger.info('Multiple `*band.dat` files found.')
         for band_file in band_files:
             band_structure = Wannier90BandParser(band_file).parse_band_structure(
-                k_line_path, logger
+                k_space=k_space,
+                wannier_method=wannier_method,
+                model_systems=model_systems,
+                logger=logger,
             )
             if band_structure is not None:
-                outputs.electronic_band_structure.append(band_structure)
+                outputs.electronic_band_structures.append(band_structure)
 
         return outputs
 
@@ -533,7 +538,7 @@ class Wannier90ParserData:
                 model_system.model_system = child_model_systems
 
         # `ModelWannier(ModelMethod)` parsing
-        model_method = self.parse_model_method()
+        model_method = self.parse_model_method(simulation)
         simulation.model_method.append(model_method)
 
         # `Outputs` parsing
