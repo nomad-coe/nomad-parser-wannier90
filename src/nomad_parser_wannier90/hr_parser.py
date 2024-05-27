@@ -41,17 +41,25 @@ class HrParser(TextParser):
 
 
 class Wannier90HrParser:
-    def __init__(self):
-        self.hr_parser = HrParser()
+    def __init__(self, hr_file: str = ''):
+        if not hr_file:
+            raise ValueError('Hopping `*hr.dat` file not found.')
+        self.hr_parser = HrParser(mainfile=hr_file)
 
     def parse_hoppings(
-        self, hr_file: Optional[str], wannier_method: Wannier, logger: BoundLogger
+        self, wannier_method: Wannier, logger: BoundLogger
     ) -> Tuple[Optional[HoppingMatrix], Optional[CrystalFieldSplitting]]:
-        if not hr_file:
-            logger.warning('Hopping `*hr.dat` file not found.')
-            return None, None
-        self.hr_parser.mainfile = hr_file
+        """
+        Parse the `HoppingMatrix` and `CrystalFieldSplitting` sections from the `*hr.dat` file.
 
+        Args:
+            wannier_method (Wannier): The `Wannier` method section which contains the number of orbitals information.
+            logger (BoundLogger): The logger to log messages.
+
+        Returns:
+            (Tuple[Optional[HoppingMatrix], Optional[CrystalFieldSplitting]]): The parsed `HoppingMatrix` and
+            `CrystalFieldSplitting` properties].
+        """
         # Parsing the `HoppingMatrix` and `CrystalFieldSplitting` sections
         n_orbitals = wannier_method.n_orbitals
         crystal_field_splitting = CrystalFieldSplitting(

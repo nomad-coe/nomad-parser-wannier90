@@ -24,18 +24,21 @@ from structlog.stdlib import BoundLogger
 from nomad.units import ureg
 from nomad.parsing.file_parser import DataTextParser
 
-from nomad_simulations.properties import ElectronicDensityOfStates
-from nomad_simulations.variables import Energy2
+from nomad_simulations.numerical_settings import KLinePath as KLinePathSettings
+from nomad_simulations.properties import ElectronicBandStructure
+from nomad_simulations.variables import KLinePath
 
 
 class Wannier90BandParser:
-    def __init__(self):
-        self.band_parser = DataTextParser()
+    def __init__(self, band_file: str = ''):
+        if not band_file:
+            raise ValueError('Band structure `*band.dat` file not found.')
+        self.band_parser = DataTextParser(mainfile=band_file)
+
+    def parse_k_line_path_settings(self) -> Optional[KLinePathSettings]:
+        return None
 
     def parse_band_structure(
-        self, band_file: Optional[str], logger: BoundLogger
-    ) -> Optional[ElectronicDensityOfStates]:
-        if not band_file:
-            logger.warning('Band structure `*band.dat` file not found.')
-            return None
-        self.band_parser.mainfile = band_file
+        self, logger: BoundLogger
+    ) -> Optional[ElectronicBandStructure]:
+        logger.info('hey')

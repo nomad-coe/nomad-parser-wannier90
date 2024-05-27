@@ -29,17 +29,18 @@ from nomad_simulations.variables import Energy2
 
 
 class Wannier90DosParser:
-    def __init__(self):
-        self.dos_parser = DataTextParser()
-
-    def parse_dos(
-        self, dos_file: Optional[str], logger: BoundLogger
-    ) -> Optional[ElectronicDensityOfStates]:
+    def __init__(self, dos_file: str = ''):
         if not dos_file:
-            logger.warning('DOS `*dos.dat` file not found.')
-            return None
-        self.dos_parser.mainfile = dos_file
+            raise ValueError('DOS `*dos.dat` file not found.')
+        self.dos_parser = DataTextParser(mainfile=dos_file)
 
+    def parse_dos(self) -> Optional[ElectronicDensityOfStates]:
+        """
+        Parse the `ElectronicDensityOfStates` section from the `*dos.dat` file.
+
+        Returns:
+            (Optional[ElectronicDensityOfStates]): The parsed `ElectronicDensityOfStates` property.
+        """
         # TODO add spin polarized case
         data = np.transpose(self.dos_parser.data)
         sec_dos = ElectronicDensityOfStates()

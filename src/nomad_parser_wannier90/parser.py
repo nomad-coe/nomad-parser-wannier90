@@ -51,7 +51,7 @@ from nomad_simulations.model_method import (
     ModelMethod,
     Wannier as ModelWannier,
 )
-from nomad_simulations.numerical_settings import KMesh as ModelKMesh
+from nomad_simulations.numerical_settings import KMesh as ModelKMesh, KSpace
 
 from nomad_simulations.outputs import Outputs
 from nomad_simulations.variables import Temperature
@@ -372,7 +372,8 @@ class Wannier90ParserData:
         # `NumericalSettings` sections
         k_mesh = self.parse_k_mesh()
         if k_mesh is not None:
-            model_wannier.numerical_settings.append(k_mesh)
+            k_space = KSpace(k_mesh=[k_mesh])
+            model_wannier.numerical_settings.append(k_space)
 
         return model_wannier
 
@@ -402,9 +403,9 @@ class Wannier90ParserData:
         for hr_file in hr_files:
             # contains information about `n_orbitals`
             wannier_method = simulation.model_method[-1]
-            hopping_matrix, crystal_field_splitting = (
-                Wannier90HrParser().parse_hoppings(hr_file, wannier_method, logger)
-            )
+            hopping_matrix, crystal_field_splitting = Wannier90HrParser(
+                hr_file
+            ).parse_hoppings(wannier_method, logger)
             if hopping_matrix is not None:
                 outputs.hopping_matrix.append(hopping_matrix)
             if crystal_field_splitting is not None:
@@ -415,7 +416,7 @@ class Wannier90ParserData:
         if len(dos_files) > 1:
             logger.info('Multiple `*dos.dat` files found.')
         for dos_file in dos_files:
-            electronic_dos = Wannier90DosParser().parse_dos(dos_file, logger)
+            electronic_dos = Wannier90DosParser(dos_file).parse_dos()
             if electronic_dos is not None:
                 outputs.electronic_dos.append(electronic_dos)
 
@@ -424,9 +425,7 @@ class Wannier90ParserData:
         if len(band_files) > 1:
             logger.info('Multiple `*band.dat` files found.')
         for band_file in band_files:
-            band_structure = Wannier90BandParser().parse_band_structure(
-                band_file, logger
-            )
+            band_structure = Wannier90BandParser(band_file).parse_band_structure(logger)
             if band_structure is not None:
                 outputs.electronic_band_structure.append(band_structure)
 
@@ -465,9 +464,9 @@ class Wannier90ParserData:
                     'Multiple `*.win` files found. We will parse the first one.'
                 )
             if win_files is not None:
-                child_model_systems = Wannier90WInParser().parse_child_model_systems(
-                    win_files[0], model_system, logger
-                )
+                child_model_systems = Wannier90WInParser(
+                    win_files[0]
+                ).parse_child_model_systems(model_system, logger)
                 model_system.model_system = child_model_systems
 
         # `ModelWannier(ModelMethod)` parsing

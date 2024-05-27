@@ -51,8 +51,10 @@ class WInParser(TextParser):
 
 
 class Wannier90WInParser:
-    def __init__(self):
-        self.win_parser = WInParser()
+    def __init__(self, win_file: str = ''):
+        if not win_file:
+            raise ValueError('Input `*.win` file not found.')
+        self.win_parser = WInParser(mainfile=win_file)
 
         self._input_projection_units = {'Ang': 'angstrom', 'Bohr': 'bohr'}
 
@@ -208,7 +210,6 @@ class Wannier90WInParser:
 
     def parse_child_model_systems(
         self,
-        win_file: Optional[str],
         model_system: ModelSystem,
         logger: BoundLogger,
     ) -> Optional[List[ModelSystem]]:
@@ -217,19 +218,12 @@ class Wannier90WInParser:
         also store the `OrbitalsState` information of the projected atoms.
 
         Args:
-            win_files (Optional[str]): The `*.win` file to be parsed. We will only use the first one.
             model_system (ModelSystem): The parent `ModelSystem` to which the child model systems will be added.
             logger (BoundLogger): The logger to log messages.
 
         Returns:
             (Optional[List[ModelSystem]]): The list of child model systems with the projected atoms information.
         """
-        # Parsing only the first file `*.win`
-        if not win_file:
-            logger.warning('Input `*.win` file not found.')
-            return None
-        self.win_parser.mainfile = win_file
-
         # Check if `atomic_cell` is present in `model_system``
         if model_system.cell is None or len(model_system.cell) == 0:
             logger.warning(
