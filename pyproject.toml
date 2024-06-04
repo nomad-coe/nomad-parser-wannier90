@@ -25,7 +25,7 @@ dependencies = [
     "nomad-lab@develop",
     "nomad-schema-plugin-simulation-workflow@git+https://github.com/nomad-coe/nomad-schema-plugin-simulation-workflow.git@develop",
     "nomad-schema-plugin-run@git+https://github.com/nomad-coe/nomad-schema-plugin-run.git@develop",
-    "nomad-schema-plugin-simulation-data@develop",
+    "nomad-simulations@develop",
 ]
 
 [project.urls]
