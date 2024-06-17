@@ -256,10 +256,13 @@ class WOutParser(TextParser):
         ]
 
 
+from nomad.parsing.parser import MatchingParser
+
+
 class Wannier90ParserData:
     level = 1
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         self.wout_parser = WOutParser()
 
         self._dft_codes = [
@@ -558,7 +561,7 @@ class Wannier90ParserData:
 class Wannier90Parser:
     level = 1
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         self.wout_parser = WOutParser()
         self.win_parser = WInParser()
         self.band_dat_parser = DataTextParser()
