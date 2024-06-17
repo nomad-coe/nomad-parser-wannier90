@@ -15,7 +15,7 @@ classifiers = [
 ]
 name = "nomad-parser-wannier90"
 description = "A NOMAD plugin for parsing Wannier90 files."
-version = "0.1.0"
+dynamic = ["version"]
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [
