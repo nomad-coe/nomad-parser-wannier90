@@ -23,6 +23,7 @@ import numpy as np
 from typing import List, Optional
 from structlog.stdlib import BoundLogger
 
+from nomad.config import config
 from nomad.units import ureg
 from nomad.datamodel import EntryArchive
 from nomad.parsing.file_parser import TextParser, Quantity, DataTextParser
@@ -68,6 +69,10 @@ from nomad_parser_wannier90.parsers.dos_parser import Wannier90DosParser
 from nomad_parser_wannier90.parsers.band_parser import Wannier90BandParser
 
 re_n = r'[\n\r]'
+
+configuration = config.get_plugin_entry_point(
+    'nomad_parser_wannier90.parsers:nomad_parser_wannier90_plugin'
+)
 
 
 def test(template, atom_indices: list[int], **kwargs):
