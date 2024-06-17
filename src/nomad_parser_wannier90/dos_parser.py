@@ -19,13 +19,12 @@
 
 import numpy as np
 from typing import Optional
-from structlog.stdlib import BoundLogger
 
 from nomad.units import ureg
 from nomad.parsing.file_parser import DataTextParser
 
-from nomad_simulations.properties import ElectronicDensityOfStates
-from nomad_simulations.variables import Energy2
+from nomad_simulations.schema.properties import ElectronicDensityOfStates
+from nomad_simulations.schema.variables import Energy2
 
 
 class Wannier90DosParser:

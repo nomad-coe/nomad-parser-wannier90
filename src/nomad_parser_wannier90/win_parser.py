@@ -23,8 +23,8 @@ from structlog.stdlib import BoundLogger
 
 from nomad.parsing.file_parser import TextParser, Quantity
 
-from nomad_simulations.model_system import ModelSystem, AtomicCell
-from nomad_simulations.atoms_state import OrbitalsState
+from nomad_simulations.schema.model_system import ModelSystem, AtomicCell
+from nomad_simulations.schema.atoms_state import OrbitalsState
 
 
 class WInParser(TextParser):

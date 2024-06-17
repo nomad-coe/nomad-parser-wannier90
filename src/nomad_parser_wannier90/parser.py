@@ -41,21 +41,25 @@ from runschema.method import Method, AtomParameters, KMesh, Wannier, TB
 from runschema.system import System, Atoms, AtomsGroup
 
 # New schema
-from nomad_simulations import Simulation, Program as BaseProgram
-from nomad_simulations.model_system import ModelSystem, AtomicCell
-from nomad_simulations.atoms_state import (
+from nomad_simulations.schema.general import Simulation, Program as BaseProgram
+from nomad_simulations.schema.model_system import ModelSystem, AtomicCell
+from nomad_simulations.schema.atoms_state import (
     AtomsState,
     CoreHole,
 )
-from nomad_simulations.model_method import (
+from nomad_simulations.schema.model_method import (
     ModelMethod,
     Wannier as ModelWannier,
 )
-from nomad_simulations.numerical_settings import KMesh as ModelKMesh, KSpace, KLinePath
+from nomad_simulations.schema.numerical_settings import (
+    KMesh as ModelKMesh,
+    KSpace,
+    KLinePath,
+)
 
-from nomad_simulations.outputs import Outputs
-from nomad_simulations.variables import Temperature
-from nomad_simulations.properties import ElectronicBandGap
+from nomad_simulations.schema.outputs import Outputs
+from nomad_simulations.schema.variables import Temperature
+from nomad_simulations.schema.properties import ElectronicBandGap
 
 from .utils import get_files
 from .win_parser import WInParser, Wannier90WInParser

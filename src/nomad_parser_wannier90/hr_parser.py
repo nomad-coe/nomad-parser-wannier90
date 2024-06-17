@@ -24,9 +24,9 @@ from structlog.stdlib import BoundLogger
 from nomad.units import ureg
 from nomad.parsing.file_parser import TextParser, Quantity
 
-from nomad_simulations.model_method import Wannier
-from nomad_simulations.properties import HoppingMatrix, CrystalFieldSplitting
-from nomad_simulations.variables import WignerSeitz
+from nomad_simulations.schema.model_method import Wannier
+from nomad_simulations.schema.properties import HoppingMatrix, CrystalFieldSplitting
+from nomad_simulations.schema.variables import WignerSeitz
 
 
 class HrParser(TextParser):

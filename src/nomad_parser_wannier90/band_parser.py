@@ -21,15 +21,16 @@ import numpy as np
 from typing import Optional, List
 from structlog.stdlib import BoundLogger
 
-from nomad.units import ureg
 from nomad.parsing.file_parser import DataTextParser
-from nomad.datamodel import EntryArchive
 
-from nomad_simulations.model_method import Wannier
-from nomad_simulations.model_system import ModelSystem
-from nomad_simulations.numerical_settings import KSpace, KLinePath as KLinePathSettings
-from nomad_simulations.properties import ElectronicBandStructure
-from nomad_simulations.variables import KLinePath
+from nomad_simulations.schema.model_method import Wannier
+from nomad_simulations.schema.model_system import ModelSystem
+from nomad_simulations.schema.numerical_settings import (
+    KSpace,
+    KLinePath as KLinePathSettings,
+)
+from nomad_simulations.schema.properties import ElectronicBandStructure
+from nomad_simulations.schema.variables import KLinePath
 
 
 class Wannier90BandParser:
