@@ -21,7 +21,7 @@ import numpy as np
 import os
 
 from nomad.datamodel import EntryArchive
-from nomad_parser_wannier90.parser import Wannier90Parser
+from nomad_parser_wannier90.parsers.parser import Wannier90Parser
 
 from . import logger
 

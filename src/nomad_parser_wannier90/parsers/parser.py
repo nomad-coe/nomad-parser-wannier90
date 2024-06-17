@@ -61,11 +61,11 @@ from nomad_simulations.schema.outputs import Outputs
 from nomad_simulations.schema.variables import Temperature
 from nomad_simulations.schema.properties import ElectronicBandGap
 
-from .utils import get_files
-from .win_parser import WInParser, Wannier90WInParser
-from .hr_parser import HrParser, Wannier90HrParser
-from .dos_parser import Wannier90DosParser
-from .band_parser import Wannier90BandParser
+from nomad_parser_wannier90.parsers.utils import get_files
+from nomad_parser_wannier90.parsers.win_parser import WInParser, Wannier90WInParser
+from nomad_parser_wannier90.parsers.hr_parser import HrParser, Wannier90HrParser
+from nomad_parser_wannier90.parsers.dos_parser import Wannier90DosParser
+from nomad_parser_wannier90.parsers.band_parser import Wannier90BandParser
 
 re_n = r'[\n\r]'
 

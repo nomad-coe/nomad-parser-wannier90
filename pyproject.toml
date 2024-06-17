@@ -1,8 +1,5 @@
 [build-system]
-requires = [
-    "setuptools>=61.0.0",
-    "setuptools-scm>=8.0",
-]
+requires = ["setuptools>=61.0.0", "setuptools-scm>=8.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -18,14 +15,14 @@ classifiers = [
 ]
 name = "nomad-parser-wannier90"
 description = "A NOMAD plugin for parsing Wannier90 files."
-dynamic = ["version"]
+version = "0.1.0"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [
-    { name = "Jose M. Pizarro", email = "jose.pizarro@physik.hu-berlin.de" }
+    { name = "Jose M. Pizarro", email = "jose.pizarro@physik.hu-berlin.de" },
 ]
 maintainers = [
-    { name = "Jose M. Pizarro", email = "jose.pizarro@physik.hu-berlin.de" }
+    { name = "Jose M. Pizarro", email = "jose.pizarro@physik.hu-berlin.de" },
 ]
 license = { file = "LICENSE" }
 dependencies = [
@@ -123,9 +120,11 @@ skip-magic-trailing-comma = false
 # Like Black, automatically detect the appropriate line ending.
 line-ending = "auto"
 
+[tool.setuptools]
+package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools.package-data]
-nomad_parser_wannier90 = ['*/nomad_plugin.yaml']
+[project.entry-points.'nomad.plugin']
+nomad_parser_wannier90_plugin = "nomad_parser_wannier90.parsers:nomad_parser_wannier90_plugin"
