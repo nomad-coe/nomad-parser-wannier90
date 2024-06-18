@@ -16,10 +16,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+
 import os
 import logging
 import numpy as np
+from typing import List, Optional
+from structlog.stdlib import BoundLogger
 
+from nomad.config import config
 from nomad.units import ureg
 from nomad.datamodel import EntryArchive
 from nomad.parsing.file_parser import TextParser, Quantity, DataTextParser
@@ -38,32 +42,37 @@ from runschema.method import Method, AtomParameters, KMesh, Wannier, TB
 from runschema.system import System, Atoms, AtomsGroup
 
 # New schema
-from nomad_simulations import Simulation, Program as BaseProgram
-from nomad_simulations.model_system import ModelSystem, AtomicCell
-from nomad_simulations.atoms_state import (
+from nomad_simulations.schema.general import Simulation, Program as BaseProgram
+from nomad_simulations.schema.model_system import ModelSystem, AtomicCell
+from nomad_simulations.schema.atoms_state import (
     AtomsState,
-    HubbardInteractions,
     CoreHole,
-    OrbitalsState,
 )
-from nomad_simulations.model_method import (
+from nomad_simulations.schema.model_method import (
     ModelMethod,
     Wannier as ModelWannier,
+)
+from nomad_simulations.schema.numerical_settings import (
     KMesh as ModelKMesh,
+    KSpace,
+    KLinePath,
 )
 
-from nomad_simulations.outputs import Outputs
-from nomad_simulations.variables import Temperature, Energy2
-from nomad_simulations.properties import (
-    ElectronicBandGap,
-    ElectronicDensityOfStates,
-    FermiLevel,
-)
+from nomad_simulations.schema.outputs import Outputs
+from nomad_simulations.schema.variables import Temperature
+from nomad_simulations.schema.properties import ElectronicBandGap
 
-from .utils import get_files
-
+from nomad_parser_wannier90.parsers.utils import get_files
+from nomad_parser_wannier90.parsers.win_parser import WInParser, Wannier90WInParser
+from nomad_parser_wannier90.parsers.hr_parser import HrParser, Wannier90HrParser
+from nomad_parser_wannier90.parsers.dos_parser import Wannier90DosParser
+from nomad_parser_wannier90.parsers.band_parser import Wannier90BandParser
 
 re_n = r'[\n\r]'
+
+configuration = config.get_plugin_entry_point(
+    'nomad_parser_wannier90.parsers:nomad_parser_wannier90_plugin'
+)
 
 
 def test(template, atom_indices: list[int], **kwargs):
@@ -137,6 +146,19 @@ class WOutParser(TextParser):
             Quantity('k_points', r'\|[\s\d]*(-*\d.[^\|]+)', repeats=True, dtype=float),
         ]
 
+        klinepath_quantities = [
+            Quantity(
+                'high_symm_name',
+                r'\| *From\: *([a-zA-Z]+) [\d\.\-\s]*To\: *([a-zA-Z]+)',
+                repeats=True,
+            ),
+            Quantity(
+                'high_symm_value',
+                r'\| *From\: *[a-zA-Z]* *([\d\.\-\s]+)To\: *[a-zA-Z]* *([\d\.\-\s]+)\|',
+                repeats=True,
+            ),
+        ]
+
         disentangle_quantities = [
             Quantity(
                 'outer',
@@ -186,6 +208,12 @@ class WOutParser(TextParser):
                 sub_parser=TextParser(quantities=kmesh_quantities),
             ),
             Quantity(
+                'k_line_path',
+                rf'\s*(K-space path sections\:[\s\S]+?)(?:\*-------)',
+                repeats=False,
+                sub_parser=TextParser(quantities=klinepath_quantities),
+            ),
+            Quantity(
                 'Nwannier',
                 r'\|\s*Number of Wannier Functions\s*\:\s*(\d+)',
                 repeats=False,
@@ -228,49 +256,25 @@ class WOutParser(TextParser):
         ]
 
 
-class WInParser(TextParser):
-    def __init__(self):
-        super().__init__(None)
-
-    def init_quantities(self):
-        def str_proj_to_list(val_in):
-            # To avoid inconsistent regex that can contain or not spaces
-            val_n = [x for x in val_in.split('\n') if x]
-            return [v.strip('[]').replace(' ', '').split(':') for v in val_n]
-
-        self._quantities = [
-            Quantity(
-                'energy_fermi', rf'{re_n}fermi_energy\s*=\s*([\d\.\-]+)', repeats=False
-            ),
-            Quantity(
-                'projections',
-                rf'[bB]egin [pP]rojections([\s\S]+?)(?:[eE]nd [pP]rojections)',
-                repeats=False,
-                str_operation=str_proj_to_list,
-            ),
-        ]
-
-
-class HrParser(TextParser):
-    def __init__(self):
-        super().__init__(None)
-
-    def init_quantities(self):
-        self._quantities = [
-            Quantity('degeneracy_factors', r'\s*written on[\s\w]*:\d*:\d*\s*([\d\s]+)'),
-            Quantity('hoppings', rf'\s*([-\d\s.]+)', repeats=False),
-        ]
+from nomad.parsing.parser import MatchingParser
 
 
 class Wannier90ParserData:
     level = 1
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         self.wout_parser = WOutParser()
-        self.win_parser = WInParser()
-        self.band_dat_parser = DataTextParser()
-        self.dos_dat_parser = DataTextParser()
-        self.hr_parser = HrParser()
+
+        self._dft_codes = [
+            'quantumespresso',
+            'abinit',
+            'vasp',
+            'siesta',
+            'wien2k',
+            'fleur',
+            'openmx',
+            'gpaw',
+        ]
 
         self._input_projection_mapping = {
             'Nwannier': 'n_orbitals',
@@ -278,310 +282,246 @@ class Wannier90ParserData:
             # "conv_tol": "convergence_tolerance_max_localization",
         }
 
-        self._input_projection_units = {'Ang': 'angstrom', 'Bohr': 'bohr'}
+    def parse_atoms_state(self, labels: List[str]) -> List[AtomsState]:
+        """
+        Parse the `AtomsState` from the labels by storing them as the `chemical_symbols`.
 
-        # Angular momentum [l, mr] following Wannier90 tables 3.1 and 3.2
-        # TODO move to normalization or utils in nomad?
-        self._wannier_orbital_symbols_map = {
-            's': ('s', ''),
-            'px': ('p', 'x'),
-            'py': ('p', 'y'),
-            'pz': ('p', 'z'),
-            'dz2': ('d', 'z^2'),
-            'dxz': ('d', 'xz'),
-            'dyz': ('d', 'yz'),
-            'dx2-y2': ('d', 'x^2-y^2'),
-            'dxy': ('d', 'xy'),
-            'fz3': ('f', 'z^3'),
-            'fxz2': ('f', 'xz^2'),
-            'fyz2': ('f', 'yz^2'),
-            'fz(x2-y2)': ('f', 'z(x^2-y^2)'),
-            'fxyz': ('f', 'xyz'),
-            'fx(x2-3y2)': ('f', 'x(x^2-3y^2)'),
-            'fy(3x2-y2)': ('f', 'y(3x^2-y^2)'),
-        }
-        self._wannier_orbital_numbers_map = {
-            (0, 1): ('s', ''),
-            (1, 1): ('p', 'x'),
-            (1, 2): ('p', 'y'),
-            (1, 3): ('p', 'z'),
-            (2, 1): ('d', 'z^2'),
-            (2, 2): ('d', 'xz'),
-            (2, 3): ('d', 'yz'),
-            (2, 4): ('d', 'x^2-y^2'),
-            (2, 5): ('d', 'xy'),
-            (3, 1): ('f', 'z^3'),
-            (3, 2): ('f', 'xz^2'),
-            (3, 3): ('f', 'yz^2'),
-            (3, 4): ('f', 'z(x^2-y^2)'),
-            (3, 5): ('f', 'xyz'),
-            (3, 6): ('f', 'x(x^2-3y^2)'),
-            (3, 7): ('f', 'y(3x^2-y^2)'),
-        }
+        Args:
+            labels (List[str]): List of chemical element labels.
 
-    def parse_system(self, simulation):
-        model_system = ModelSystem()
-        model_system.is_representative = True
+        Returns:
+            (List[AtomsState]): List of `AtomsState` sections.
+        """
+        atoms_state = []
+        for label in labels:
+            atoms_state.append(AtomsState(chemical_symbol=label))
+        return atoms_state
 
-        structure = self.wout_parser.get('structure')
-        if structure is None:
-            self.logger.error('Error parsing the structure from .wout')
-            return None
+    def parse_atomic_cell(self) -> AtomicCell:
+        """
+        Parse the `AtomicCell` from the `lattice_vectors` and `structure` regex quantities in `WOutParser`.
 
+        Returns:
+            (AtomicCell): The parsed `AtomicCell` section.
+        """
         atomic_cell = AtomicCell()
-        model_system.cell.append(atomic_cell)
+
+        # Parsing `lattice_vectors`
         if self.wout_parser.get('lattice_vectors', []):
             lattice_vectors = np.vstack(
                 self.wout_parser.get('lattice_vectors', [])[-3:]
             )
             atomic_cell.lattice_vectors = lattice_vectors * ureg.angstrom
-
+        # and `periodic_boundary_conditions`
         pbc = (
             [True, True, True] if lattice_vectors is not None else [False, False, False]
         )
         atomic_cell.periodic_boundary_conditions = pbc
-        labels = structure.get('labels')
-        for label in labels:
-            atoms_state = AtomsState(chemical_symbol=label)
-            atomic_cell.atoms_state.append(atoms_state)
-        if structure.get('positions') is not None:
-            atomic_cell.positions = structure.get('positions') * ureg.angstrom
+
+        # Parsing `atoms_state` from `structure`
+        labels = self.wout_parser.get('structure', {}).get('labels')
+        if labels is not None:
+            atoms_state = self.parse_atoms_state(labels)
+            atomic_cell.atoms_state = atoms_state
+        # and parsing `positions`
+        if self.wout_parser.get('structure', {}).get('positions') is not None:
+            atomic_cell.positions = (
+                self.wout_parser.get('structure', {}).get('positions') * ureg.angstrom
+            )
+        return atomic_cell
+
+    def parse_model_system(self, logger: BoundLogger) -> Optional[ModelSystem]:
+        """
+        Parse the `ModelSystem` with the `AtomicCell` information. If the `structure` is not recognized in `WOutParser`, then return `None`.
+
+        Returns:
+            (Optional[ModelSystem]): The parsed `ModelSystem` section.
+        """
+        model_system = ModelSystem()
+        model_system.is_representative = True
+
+        # If the `structure` is not parsed, return None
+        if self.wout_parser.get('structure') is None:
+            logger.error('Error parsing the structure from .wout')
+            return None
+
+        atomic_cell = self.parse_atomic_cell()
+        model_system.cell.append(atomic_cell)
         return model_system
 
-    def parse_wannier(self):
-        sec_wannier = ModelWannier()
+    def parse_wannier(self) -> ModelWannier:
+        """
+        Parse the `ModelWannier` section from the `WOutParser` quantities.
+
+        Returns:
+            (ModelWannier): The parsed `ModelWannier` section.
+        """
+        model_wannier = ModelWannier()
         for key in self._input_projection_mapping.keys():
             setattr(
-                sec_wannier,
+                model_wannier,
                 self._input_projection_mapping[key],
                 self.wout_parser.get(key),
             )
         if self.wout_parser.get('Niter'):
-            sec_wannier.is_maximally_localized = self.wout_parser.get('Niter', 0) > 1
-        if self.wout_parser.get('energy_windows'):
-            sec_wannier.energy_window_outer = self.wout_parser.get(
-                'energy_windows'
-            ).outer
-            sec_wannier.energy_window_inner = self.wout_parser.get(
-                'energy_windows'
-            ).inner
-        return sec_wannier
+            model_wannier.is_maximally_localized = self.wout_parser.get('Niter', 0) > 1
+        model_wannier.energy_window_outer = self.wout_parser.get(
+            'energy_windows', {}
+        ).get('outer')
+        model_wannier.energy_window_inner = self.wout_parser.get(
+            'energy_windows', {}
+        ).get('inner')
+        return model_wannier
 
-    def parse_k_mesh(self):
+    def parse_k_mesh(self) -> Optional[ModelKMesh]:
+        """
+        Parse the `ModelKMesh` section from the `WOutParser` quantities.
+
+        Returns:
+            (Optional[ModelKMesh]): The parsed `ModelKMesh` section.
+        """
         sec_k_mesh = None
         k_mesh = self.wout_parser.get('k_mesh')
-        if k_mesh:
-            sec_k_mesh = ModelKMesh()
-            sec_k_mesh.n_points = k_mesh.get('n_points')
-            sec_k_mesh.grid = k_mesh.get('grid', [])
-            if k_mesh.get('k_points') is not None:
-                sec_k_mesh.points = np.complex128(k_mesh.k_points[::2])
+        if k_mesh is None:
+            return sec_k_mesh
+        sec_k_mesh = ModelKMesh()
+        sec_k_mesh.n_points = k_mesh.get('n_points')
+        sec_k_mesh.grid = k_mesh.get('grid', [])
+        if k_mesh.get('k_points') is not None:
+            sec_k_mesh.points = np.complex128(k_mesh.k_points[::2])
         return sec_k_mesh
 
-    def parse_method(self, simulation):
-        # Wannier90 section
-        wannier = self.parse_wannier()
-        if wannier is None:
-            self.logger.warning('Could not parse the ModelMethod Wannier section.')
-            return None
-        simulation.model_method.append(wannier)
+    def parse_k_line_path(self) -> Optional[KLinePath]:
+        """
+        Parse the `KLinePath` section from the `WOutParser` quantities.
 
-        # KMesh section
+        Returns:
+            (Optional[KLinePath]): The parsed `KLinePath` section.
+        """
+        sec_k_line_path = None
+        k_line_path = self.wout_parser.get('k_line_path')
+        if k_line_path is None:
+            return sec_k_line_path
+
+        # Store the list of high symmetry names and values for the section `KLinePath`
+        high_symm_names = k_line_path.get('high_symm_name')
+        high_symm_values = [
+            np.reshape(val, (2, 3)) for val in k_line_path.get('high_symm_value')
+        ]
+        # Start with the first element of the first pair
+        names = [high_symm_names[0][0]]
+        values = [high_symm_values[0][0]]
+        for i, pair in enumerate(high_symm_names):
+            # Add the second element if it's not the last one in the list
+            if pair[1] != names[-1]:
+                names.append(pair[1])
+                values.append(high_symm_values[i][1])
+        sec_k_line_path = KLinePath(
+            high_symmetry_path_names=names, high_symmetry_path_values=values
+        )  # `points` are extracted in the `Wannier90BandParser` using the `KLinePath.resolve_points` method
+        return sec_k_line_path
+
+    def parse_model_method(self, simulation: Simulation) -> ModelMethod:
+        """
+        Parse the `ModelWannier(ModelMethod)` section from the `WOutParser` quantities.
+
+        Returns:
+            (ModelMethod): The parsed `ModelWannier(ModelMethod)` section.
+        """
+        # `ModelMethod` section
+        model_wannier = self.parse_wannier()
+
+        # `NumericalSettings` sections
         k_mesh = self.parse_k_mesh()
-        if k_mesh:
-            wannier.numerical_settings.append(k_mesh)
+        if k_mesh is not None:
+            k_space = KSpace(k_mesh=[k_mesh])
+            model_wannier.numerical_settings.append(k_space)
 
-    def parse_winput(self, simulation):
-        try:
-            model_system = simulation.model_system[-1]
-            atomic_cell = model_system.cell[0]
-        except Exception:
-            self.logger.warning(
-                'Could not extract system.atoms and method sections for parsing win.'
-            )
-            return None
+        k_line_path = self.parse_k_line_path()
+        if k_line_path is not None:
+            if k_space is None:
+                k_space = KSpace()
+                model_wannier.numerical_settings.append(k_space)
+            k_space.k_line_path = k_line_path
 
-        # Parsing from input
-        win_files = get_files('*.win', self.filepath, '*.wout')
-        if not win_files:
-            self.logger.warning('Input .win file not found.')
-            return None
-        if len(win_files) > 1:
-            self.logger.warning(
-                'Multiple win files found. We will parse the first one.'
-            )
-        self.win_parser.mainfile = win_files[0]
+        return model_wannier
 
-        def fract_cart_sites(atomic_cell, units, val):
-            for pos in atomic_cell.positions.to(units):
-                if np.array_equal(val, pos.magnitude):
-                    index = atomic_cell.positions.magnitude.tolist().index(
-                        pos.magnitude.tolist()
-                    )
-                    return atomic_cell.atoms_state[index].chemical_symbol
+    def parse_outputs(self, simulation: Simulation, logger: BoundLogger) -> Outputs:
+        outputs = Outputs()
+        if simulation.model_system is not None:
+            outputs.model_system_ref = simulation.model_system[-1]
 
-        # Set units in case these are defined in .win
-        projections = self.win_parser.get('projections', [])
-        if projections:
-            if not isinstance(projections, list):
-                projections = [projections]
-            if projections[0][0] in ['Bohr', 'Angstrom']:
-                x_wannier90_units = self._input_projection_units[projections[0][0]]
-                projections.pop(0)
-            else:
-                x_wannier90_units = 'angstrom'
-            if projections[0][0] == 'random':
-                return
-
-        def parse_child_atom_indices(atom, model_system_child, atomic_cell):
-            if atom.startswith('f='):  # fractional coordinates
-                val = [float(x) for x in atom.replace('f=', '').split(',')]
-                val = np.dot(val, atomic_cell.lattice_vectors.magnitude)
-                sites = fract_cart_sites(atomic_cell, x_wannier90_units, val)
-            elif atom.startswith('c='):  # cartesian coordinates
-                val = [float(x) for x in atom.replace('c=', '').split(',')]
-                sites = fract_cart_sites(atomic_cell, x_wannier90_units, val)
-            else:  # atom label directly specified
-                sites = atom
-            # sec_atoms_group.n_entities = len(sites)  # always 1 (only one atom per proj)
-            model_system_child.branch_label = sites
-            model_system_child.atom_indices = np.where(
-                [
-                    atom.chemical_symbol == model_system_child.branch_label
-                    for atom in atomic_cell.atoms_state
-                ]
-            )[0]
-
-        def parse_hubbard(model_system_child, atomic_cell):
-            hubbard = HubbardInteractions(u=3.0 * ureg.eV, j=0.5 * ureg.eV)
-            atomic_cell.atoms_state[
-                model_system_child.atom_indices[0]
-            ].hubbard_interactions = hubbard
-
-        def parse_orbitals_state(atom, model_system_child, atomic_cell):
-            for atom_index in model_system_child.atom_indices:
-                atom_state = atomic_cell.atoms_state[atom_index]
-                if atom != atom_state.chemical_symbol:
-                    continue
-                try:
-                    orbitals = projections[nat][1].split(';')
-                    angular_momentum = None
-                    for orb in orbitals:
-                        sec_orbital_state = OrbitalsState()
-                        # sec_orbital_state.n_orbitals = len(orbitals)
-                        if orb.startswith('l='):  # using angular momentum numbers
-                            lmom = int(
-                                orb.split(',mr')[0].replace('l=', '').split(',')[0]
-                            )
-                            mrmom = int(
-                                orb.split(',mr')[-1].replace('=', '').split(',')[0]
-                            )
-                            angular_momentum = self._wannier_orbital_numbers_map.get(
-                                (lmom, mrmom)
-                            )
-                        else:  # ang mom label directly specified
-                            angular_momentum = self._wannier_orbital_symbols_map.get(
-                                orb
-                            )
-                        (
-                            sec_orbital_state.l_quantum_symbol,
-                            sec_orbital_state.ml_quantum_symbol,
-                        ) = angular_momentum
-                        atom_state.orbitals_state.append(sec_orbital_state)
-                except Exception:
-                    self.logger.warning('Projected orbital labels not found from win.')
-                    return None
-
-        # Populating AtomsGroup for projected atoms
-        for nat in range(len(projections)):
-            model_system_child = model_system.m_create(ModelSystem)
-            model_system_child.type = 'active_atom'
-
-            # atom label always index=0
-            atom = projections[nat][0]
-            try:
-                parse_child_atom_indices(atom, model_system_child, atomic_cell)
-            except Exception:
-                self.logger.warning(
-                    'Error finding the atom labels for the projection from win.'
-                )
-                return None
-
-            # test hubbard
-            # parse_hubbard(model_system_child, atomic_cell)
-
-            # orbital angular momentum always index=1
-            # suggestion: shift to wout for projection?
-            parse_orbitals_state(atom, model_system_child, atomic_cell)
-
-    def parse_fermi_level(self, output):
-        fermi_level = FermiLevel(variables=[])
-        fermi_level.value = 0.5 * ureg.eV
-        output.fermi_level.append(fermi_level)
-        # try:
-        # Setting Fermi level to the first orbital onsite energy
-        # n_wigner_seitz_points_half = int(
-        #     0.5 * sec_hopping_matrix.n_wigner_seitz_points
-        # )
-        # energy_fermi = (
-        #     sec_hopping_matrix.value[n_wigner_seitz_points_half][0][5] * ureg.eV
-        # )
-        #     fermi_level.value = energy_fermi
-        #     output.fermi_level.append(fermi_level)
-        # except Exception:
-        #     return
-
-    def parse_dos(self, output):
-        dos_files = get_files('*dos.dat', self.filepath, self.mainfile)
-        if not dos_files:
-            return
-        if len(dos_files) > 1:
-            self.logger.warning('Multiple dos data files found.')
-        # Parsing only first *dos.dat file
-        self.dos_dat_parser.mainfile = dos_files[0]
-
-        # TODO add spin polarized case
-        data = np.transpose(self.dos_dat_parser.data)
-        sec_dos = ElectronicDensityOfStates()
-        energies = Energy2(grid_points=data[0] * ureg.eV)
-        sec_dos.variables = [energies]
-        sec_dos.value = data[1] / ureg.eV
-        output.electronic_dos.append(sec_dos)
-
-    def parse_output(self, simulation):
-        output = Outputs(model_system_ref=simulation.model_system[-1])
-        simulation.outputs.append(output)
-
+        # TESTING ##############################################
         # Scalar band gap
         bg = ElectronicBandGap(type='direct')
         bg.variables = []
         bg.value = 1.0 * ureg.eV
-        output.electronic_band_gap.append(bg)
-
+        outputs.electronic_band_gaps.append(bg)
         # T-dependent band gap
         bg = ElectronicBandGap(type='direct')
-        bg.variables = [Temperature(grid_points=[1, 2, 3] * ureg.kelvin)]
+        bg.variables = [Temperature(points=[1, 2, 3] * ureg.kelvin)]
         value = [1.0, 1.1, 1.2] * ureg.eV
         bg.value = value
-        output.electronic_band_gap.append(bg)
+        outputs.electronic_band_gaps.append(bg)
+        # TESTING ##############################################
 
-        # Fermi level and DOS
-        self.parse_fermi_level(output)
-        self.parse_dos(output)
+        # Parse hoppings
+        hr_files = get_files('*hr.dat', self.filepath, self.mainfile)
+        if len(hr_files) > 1:
+            logger.info('Multiple `*hr.dat` files found.')
+        # contains information about `n_orbitals`
+        wannier_method = simulation.m_xpath('model_method[-1]', dict=False)
+        for hr_file in hr_files:
+            hopping_matrix, crystal_field_splitting = Wannier90HrParser(
+                hr_file
+            ).parse_hoppings(wannier_method=wannier_method, logger=logger)
+            if hopping_matrix is not None:
+                outputs.hopping_matrices.append(hopping_matrix)
+            if crystal_field_splitting is not None:
+                outputs.crystal_field_splittings.append(crystal_field_splitting)
 
-    def init_parser(self):
+        # Parse DOS
+        dos_files = get_files('*dos.dat', self.filepath, self.mainfile)
+        if len(dos_files) > 1:
+            logger.info('Multiple `*dos.dat` files found.')
+        for dos_file in dos_files:
+            electronic_dos = Wannier90DosParser(dos_file).parse_dos()
+            if electronic_dos is not None:
+                outputs.electronic_dos.append(electronic_dos)
+
+        # Parse BandStructure
+        band_files = get_files('*band.dat', self.filepath, self.mainfile)
+        # contains information about `k_line_path`
+        k_space = simulation.m_xpath(
+            'model_method[-1].numerical_settings[-1]', dict=False
+        )
+        # getting the list of `ModelSystem` to extract the reciprocal_lattice_vectors
+        model_systems = simulation.m_xpath('model_system', dict=False)
+        if len(band_files) > 1:
+            logger.info('Multiple `*band.dat` files found.')
+        for band_file in band_files:
+            band_structure = Wannier90BandParser(band_file).parse_band_structure(
+                k_space=k_space,
+                wannier_method=wannier_method,
+                model_systems=model_systems,
+                logger=logger,
+            )
+            if band_structure is not None:
+                outputs.electronic_band_structures.append(band_structure)
+
+        return outputs
+
+    def init_parser(self, logger: BoundLogger):
         self.wout_parser.mainfile = self.filepath
-        self.wout_parser.logger = self.logger
-        self.hr_parser.logger = self.logger
+        self.wout_parser.logger = logger
 
-    def parse(self, filepath, archive, logger):
+    def parse(self, filepath: str, archive: EntryArchive, logger: BoundLogger):
         self.filepath = filepath
         self.archive = archive
         self.maindir = os.path.dirname(self.filepath)
         self.mainfile = os.path.basename(self.filepath)
-        self.logger = logging.getLogger(__name__) if logger is None else logger
 
-        self.init_parser()
+        self.init_parser(logger)
 
         # Adding Simulation to data
         simulation = Simulation()
@@ -590,39 +530,38 @@ class Wannier90ParserData:
             version=self.wout_parser.get('version', ''),
             link='https://wannier.org/',
         )
-        model_system = self.parse_system(simulation)
-        simulation.model_system.append(model_system)
-        self.parse_method(simulation)
-        self.parse_winput(simulation)
-        self.parse_output(simulation)
         archive.m_add_sub_section(EntryArchive.data, simulation)
 
-        # TEST
-        # settings = [
-        #     {"e": 0.15, "li": 3, "ls": "f"},
-        #     {"state": "initial", "e": 0.3, "li": 3, "ls": "f", "n": 4},
-        #     {"e": 0.9, "li": 2, "ls": "d", "n": 4, "ml": -2, "mls": "xy"},
-        #     {"e": 0.25, "li": 3, "ls": "f", "ms": False},
-        #     {"e": 0.5, "li": 1, "ls": "p", "n": 4, "ml": 0, "mls": "z", "ms": False},
-        # ]
-        # for sett in settings:
-        #     test(
-        #         archive,
-        #         sett.get("i", [0]),
-        #         n_electrons_excited=sett.get("e", 0),
-        #         l_quantum_number=sett.get("li", 0),
-        #         n_quantum_number=sett.get("n"),
-        #         ml_quantum_number=sett.get("ml"),
-        #         ms_quantum_bool=sett.get("ms"),
-        #         j_quantum_number=sett.get("ji", []),
-        #         mj_quantum_number=sett.get("mj", []),
-        #     )
+        # `ModelSystem` parsing
+        model_system = self.parse_model_system(logger)
+        if model_system is not None:
+            simulation.model_system.append(model_system)
+
+            # Child `ModelSystem` and `OrbitalsState` parsing
+            win_files = get_files('*.win', self.filepath, self.mainfile)
+            if len(win_files) > 1:
+                logger.warning(
+                    'Multiple `*.win` files found. We will parse the first one.'
+                )
+            if win_files is not None:
+                child_model_systems = Wannier90WInParser(
+                    win_files[0]
+                ).parse_child_model_systems(model_system, logger)
+                model_system.model_system = child_model_systems
+
+        # `ModelWannier(ModelMethod)` parsing
+        model_method = self.parse_model_method(simulation)
+        simulation.model_method.append(model_method)
+
+        # `Outputs` parsing
+        outputs = self.parse_outputs(simulation, logger)
+        simulation.outputs.append(outputs)
 
 
 class Wannier90Parser:
     level = 1
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         self.wout_parser = WOutParser()
         self.win_parser = WInParser()
         self.band_dat_parser = DataTextParser()

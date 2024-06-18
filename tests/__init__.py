@@ -1,8 +1,7 @@
 #
 # Copyright The NOMAD Authors.
 #
-# This file is part of NOMAD.
-# See https://nomad-lab.eu for further info.
+# This file is part of NOMAD. See https://nomad-lab.eu for further info.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,16 +15,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-import sys
-import json
-import logging
 
-from nomad.utils import configure_logging
-from nomad.datamodel import EntryArchive
-from nomad_parser_wannier90.parser import Wannier90Parser
+from nomad import utils
 
-if __name__ == '__main__':
-    configure_logging(console_log_level=logging.DEBUG)
-    archive = EntryArchive()
-    Wannier90Parser().parse(sys.argv[1], archive, logging)
-    json.dump(archive.m_to_dict(), sys.stdout, indent=2)
+
+logger = utils.get_logger(__name__)
