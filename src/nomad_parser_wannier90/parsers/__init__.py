@@ -15,5 +15,5 @@ nomad_parser_wannier90_plugin = Wannier90ParserEntryPoint(
     name='Wannier90ParserEntryPoint',
     description='Entry point for the Wannier90 parser.',
     level=1,
-    mainfile_contents_re=r'\|\s*Wannier90\s*\|',
+    mainfile_contents_re=r'\|\s*WANNIER90\s*\|',
 )
