@@ -27,6 +27,7 @@ from nomad.config import config
 from nomad.units import ureg
 from nomad.datamodel import EntryArchive
 from nomad.parsing.file_parser import TextParser, Quantity, DataTextParser
+from nomad.parsing.parser import MatchingParser
 from simulationworkflowschema import SinglePoint
 from runschema.run import Run, Program
 from runschema.calculation import (
@@ -256,10 +257,7 @@ class WOutParser(TextParser):
         ]
 
 
-from nomad.parsing.parser import MatchingParser
-
-
-class Wannier90ParserData:
+class Wannier90ParserData(MatchingParser):
     level = 1
 
     def __init__(self, *args, **kwargs):
